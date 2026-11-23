@@ -47,43 +47,45 @@ def carregar_dados(fonte):
     return df_filtrado
 
 
-# --- BARRA LATERAL (Configurações e Upload) ---
+# --- BARRA LATERAL (Configurações) ---
+CAMINHO_REPO = "DADOS_INEP_ANALISE_MULTIVARIADA_SIGLAS.csv"
+
 with st.sidebar:
-    st.header("1. Carregamento de Dados")
-    arquivo_carregado = st.file_uploader("Escolha o arquivo CSV", type="csv")
+    st.header("Configurações da Análise")
 
-    CAMINHO_REPO = "DADOS_INEP_ANALISE_MULTIVARIADA_SIGLAS.csv"
-    usar_repo = st.checkbox(
-        "Usar arquivo padrão do repositório",
-        value=True,
-        disabled=(arquivo_carregado is not None),
-    )
-
-    if arquivo_carregado is not None:
-        df_filtrado = carregar_dados(arquivo_carregado)
-        st.caption("Fonte: Arquivo enviado via upload")
-    elif usar_repo and os.path.exists(CAMINHO_REPO):
+    if os.path.exists(CAMINHO_REPO):
         df_filtrado = carregar_dados(CAMINHO_REPO)
-        st.caption(f"Fonte: `{CAMINHO_REPO}` (repositório)")
+        st.success("Base do repositório carregada.")
     else:
-        if usar_repo and not os.path.exists(CAMINHO_REPO):
-            st.error(
-                f"Arquivo `{CAMINHO_REPO}` não encontrado na pasta do projeto."
-            )
-        else:
-            st.info(
-                "Faça o upload de um CSV ou marque a opção do repositório acima."
-            )
+        st.error(f"Arquivo `{CAMINHO_REPO}` não encontrado na pasta do projeto.")
         st.stop()
 
     indicadores_de_trajetoria = ["TAP", "TCA", "TDA", "TCAN", "TADA"]
 
-    st.header("2. Seleção de Variáveis")
     variaveis_selecionadas = st.multiselect(
         "Indicadores para análise:",
         options=indicadores_de_trajetoria,
         default=indicadores_de_trajetoria,
     )
+
+    st.divider()
+
+    with st.expander("Sobre o Projeto", expanded=False):
+        st.markdown(
+            """
+            **Objetivo:** Análise multivariada (Boxplots, Correlação, PCA e Agrupamento) 
+            dos indicadores de trajetória dos cursos de **Psicologia** no Brasil.
+            
+            **Fonte:** Indicadores de Trajetória na Educação Superior (**INEP**).
+
+            **Variáveis:**
+            * **TAP:** Taxa de Permanência
+            * **TCA:** Taxa de Conclusão Acumulada
+            * **TDA:** Taxa de Desistência Acumulada
+            * **TCAN:** Taxa de Conclusão Anual
+            * **TADA:** Taxa de Desistência Anual
+            """
+        )
 
 if len(variaveis_selecionadas) <= 1:
     st.warning("Selecione pelo menos duas variáveis na barra lateral.")
@@ -101,7 +103,7 @@ dados_padronizados = scaler.fit_transform(df_numerico)
 
 # --- CRIAÇÃO DAS ABAS ---
 aba_dados, aba_box, aba_corr, aba_pca, aba_cluster = st.tabs([
-    "📋 Dados",
+"📋 Dados",
     "📦 Boxplots",
     "🔥 Matriz de Correlação",
     "🧭 Componentes Principais (PCA)",
@@ -130,8 +132,90 @@ with aba_dados:
 
 # ABA 2: BOXPLOTS
 with aba_box:
-    st.subheader("Distribuição e Outliers (Boxplots)")
-    st.info("Próximo passo: montar os boxplots de cada variável aqui.")
+    st.subheader("Distribuição e Outliers por Variável (Boxplots)")
+
+    # Gráfico geral com os boxplots lado a lado
+    fig_box_geral, ax_geral = plt.subplots(figsize=(10, 4))
+    sns.boxplot(data=df_numerico, palette="Set2", ax=ax_geral)
+    ax_geral.set_title("Comparação Geral dos Indicadores (%)")
+    ax_geral.set_ylabel("Taxa (%)")
+    ax_geral.grid(axis="y", linestyle="--", alpha=0.5)
+    st.pyplot(fig_box_geral)
+
+    st.divider()
+    st.markdown("**Detalhamento Individual e Identificação de Outliers**")
+
+    # Boxplot individual de cada variável selecionada + tabela de outliers (critério IQR)
+    colunas = st.columns(len(variaveis_selecionadas))
+    for i, var in enumerate(variaveis_selecionadas):
+        with colunas[i]:
+            fig_ind, ax_ind = plt.subplots(figsize=(3.5, 4))
+            sns.boxplot(y=df_analise[var], color="#66c2a5", ax=ax_ind)
+            ax_ind.set_title(var)
+            ax_ind.set_ylabel("Taxa (%)")
+            ax_ind.grid(axis="y", linestyle="--", alpha=0.5)
+            st.pyplot(fig_ind)
+
+            # Cálculo de outliers pelo critério interquartil (IQR)
+            q1 = df_analise[var].quantile(0.25)
+            q3 = df_analise[var].quantile(0.75)
+            iqr = q3 - q1
+            outliers = df_analise[
+                (df_analise[var] < q1 - 1.5 * iqr)
+                | (df_analise[var] > q3 + 1.5 * iqr)
+            ][["NO_IES", var]]
+
+            if not outliers.empty:
+                st.caption(f"Outliers ({len(outliers)}):")
+                st.dataframe(
+                    outliers.sort_values(by=var, ascending=False),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+            else:
+                st.caption("Sem outliers.")
+    st.divider()
+    st.subheader("Principais Conclusões da Análise Exploratória")
+
+    card1, card2 = st.columns(2)
+
+    with card1:
+        with st.container(border=True):
+            st.markdown("#### Dispersão de Permanência e Conclusão")
+            st.markdown(
+                """
+                * **TAP, TCA e TCAN** não apresentam *outliers*, mas exibem **elevada amplitude interquartil**.
+                * A mediana da **TAP** gira em torno de **40%**, mostrando grande heterogeneidade no ritmo de retenção e conclusão entre as IES brasileiras.
+                """
+            )
+
+        with st.container(border=True):
+            st.markdown("#### Desistência Acumulada (TDA)")
+            st.markdown(
+                """
+                * A maioria das IES concentra-se entre **16% e 33%** (mediana próxima de **23%**).
+                * Foram identificados **5 *outliers* superiores**, com destaque para **UFSC (95,2%)**, **IMESSM (90,0%)** e **USP (71,4%)**.
+                """
+            )
+
+    with card2:
+        with st.container(border=True):
+            st.markdown("#### Assimetria na Desistência Anual (TADA)")
+            st.markdown(
+                """
+                * Apresenta forte **assimetria positiva** e baixa dispersão na maior parte da amostra (mediana abaixo de **2%**).
+                * Possui **8 *outliers* superiores**, liderados por **IMESSM (60,0%)** e **USP (22,9%)**.
+                """
+            )
+
+        with st.container(border=True):
+            st.markdown("#### Instituições em Destaque")
+            st.markdown(
+                """
+                * **IMESSM**, **USP** e **FMPFMMG** figuram simultaneamente como *outliers* tanto na evasão anual (`TADA`) quanto na acumulada (`TDA`).
+                * Esse comportamento atípico explica o afastamento dessas IES nas componentes principais (PCA).
+                """
+            )            
 
 # ABA 3: CORRELAÇÃO (Código trazido do Colab)
 with aba_corr:
@@ -175,6 +259,48 @@ with aba_corr:
         st.markdown("**Valores da Matriz**")
         st.dataframe(corr_matriz.round(4), use_container_width=True)
 
+    st.divider()
+    st.subheader("📝 Principais Conclusões da Matriz de Correlação")
+
+    card_c1, card_c2 = st.columns(2)
+
+    with card_c1:
+        with st.container(border=True):
+            st.markdown("#### Conclusão Acumulada vs. Anual (TCA × TCAN)")
+            st.markdown(
+                """
+                * Apresentam a **correlação positiva mais forte** da base (**0,83** em Pearson e **0,84** em Spearman).
+                * Instituições que acumulam maior percentual de diplomados também mantêm elevado fluxo anual de concluintes.
+                """
+            )
+
+        with st.container(border=True):
+            st.markdown("#### Trade-off Permanência vs. Conclusão (TAP × TCA)")
+            st.markdown(
+                """
+                * Forte **correlação negativa** (**-0,78** em Pearson e **-0,76** em Spearman; e **-0,62 / -0,55** com **TCAN**).
+                * Reflete a dinâmica complementar da coorte: conforme os estudantes concluem a graduação, reduz-se proporcionalmente o estoque de alunos ainda matriculados.
+                """
+            )
+
+    with card_c2:
+        with st.container(border=True):
+            st.markdown("#### Evasão Acumulada vs. Anual (TDA × TADA)")
+            st.markdown(
+                """
+                * Correlação **positiva moderada**, caindo de **0,57** (Pearson) para **0,45** (Spearman).
+                * A diferença entre os coeficientes confirma o impacto dos *outliers* extremos (como IMESSM e USP) sobre a correlação linear.
+                """
+            )
+
+        with st.container(border=True):
+            st.markdown("#### Implicação para o PCA")
+            st.markdown(
+                """
+                * A forte colinearidade entre **TAP, TCA e TCAN** e o bloco separado de **TDA e TADA** antecipam duas dimensões principais bem definidas.
+                * Isso justifica o uso da **Análise de Componentes Principais** para sintetizar os indicadores sem redundância.
+                """
+            )
 # ABA 4: PCA
 with aba_pca:
     st.subheader("Análise de Componentes Principais (PCA)")
