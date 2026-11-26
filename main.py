@@ -5,6 +5,10 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score, adjusted_rand_score
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster, cophenet
+from scipy.spatial.distance import pdist
 from sklearn.preprocessing import StandardScaler
 import streamlit as st
 import io
@@ -107,8 +111,8 @@ aba_dados, aba_box, aba_corr, aba_pca, aba_cluster = st.tabs([
     "Dados",
     "Boxplots",
     "Matriz de Correlação",
-    "Componentes Principais (PCA)",
-    "Agrupamento (Cluster)",
+    "Componentes Principais",
+    "Agrupamento",
 ])
 
 # ABA 1: DADOS 
@@ -304,7 +308,7 @@ with aba_corr:
             )
 # ABA 4: PCA
 with aba_pca:
-    st.subheader("Análise de Componentes Principais (PCA)")
+    st.subheader("Análise de Componentes Principais")
     pca = PCA()
     scores = pca.fit_transform(dados_padronizados)
     cargas = pca.components_.T
@@ -312,8 +316,8 @@ with aba_pca:
     var_explicada = pca.explained_variance_ratio_ * 100
     var_acumulada = np.cumsum(var_explicada)
     
-    coluna_tabelaVar, coluna_cards = st.columns([1, 1])
-    with coluna_tabelaVar:
+    col1, col2 = st.columns([1, 1])
+    with col1:
         st.subheader("Variância Explicada pelos Componentes Principais")
         tabela_var = pd.DataFrame({
             'Componente': componentes_pricipais_labels,
@@ -321,23 +325,34 @@ with aba_pca:
             'Acumulada (%)': np.round(var_acumulada, 2)
         })
         st.dataframe(tabela_var, width=960)
-    
-    with coluna_cards:
-        st.subheader("Critérios de Seleção dos Componentes Principais")
-        total_retentores_da_variancia = sum([1 for cp in var_explicada if cp >= 25.0])
         with st.container(border=True):
             st.markdown(
                 f"""
+                #### Critérios de Seleção dos Componentes Principais
                 - Consideraremos somente os componentes principais que somarem pelo menos **25% da variância individual**. \n
                 - Os componentes **CP1 e CP2** explicam, respectivamente, **50,22%** e **35,89%** da variância dos dados, totalizando **86,11%** da variância total. \n
                 - Os demais componentes, **CP3, CP4, CP5**, explicam somente **13,89%** da variância total, portanto, serão desconsiderados.
                 """
             )
+    
+    with col2:
+        st.subheader("Gráfico da Variância Explicada pelos Componentes Principais")
+        grafico_variancia_explicada, ax = plt.subplots(figsize=(10, 5.36))
+        ax.bar(componentes_pricipais_labels, var_explicada, color="#66c2a5", alpha=0.7, label="Variância Individual")
+        ax.plot(componentes_pricipais_labels, var_acumulada, color="darkorange", marker="o", label="Variância Acumulada")
+        ax.set_xlabel("Componentes Principais")
+        ax.set_ylabel("Variância (%)")
+        ax.set_title("Variância Explicada pelos Componentes Principais")
+        ax.axhline(25, color="red", linestyle="--", label="25% da Variância Individual")
+        ax.legend()
+        buf = io.BytesIO()
+        grafico_variancia_explicada.savefig(buf, format="png", bbox_inches="tight", dpi=200)
+        st.image(buf, use_container_width=True)
 
     st.divider()
         
-    coluna_tabelaLoad, coluna_vazia = st.columns([1, 1])
-    with coluna_tabelaLoad:
+    col1, col2 = st.columns([1, 1.5])
+    with col1:
         st.subheader("Cargas dos Componentes Principais")
         tabela_loadings = pd.DataFrame(
             cargas,
@@ -345,45 +360,206 @@ with aba_pca:
             columns=[f'CP{i+1}' for i in range(len(cargas))]
         )
         st.dataframe(tabela_loadings, width=960)
-    
-    st.subheader("Interpretação das Cargas e Identificação dos Componentes Principais")
-    coluna_card1, coluna_card2 = st.columns([1, 1])
-    with coluna_card1:
+        
+        st.subheader("Interpretação das Cargas e Identificação dos Componentes Principais")
         with st.container(border=True):
             st.markdown(
                 f"""
                 #### Permanência x Conclusão
-                - O primeiro componente principal, **CP1**, tem uma forte influência negativa de **TAP** com -0.5153 de carga enquanto demonstra uma forte influência positiva de **TCA** e **TCAN** com cargas de 0.6136 e 0.5787, respectivamente.\n
-                - Podemos observar que quanto menor a permanẽncia, e maior a conclusão, maior o valor do **CP1**. Caso contrário, observamos valores mais baixos do componente.\n
-                - Chegamos à conclusão de que o **CP1** representa o contraste entre **Permanência x Conclusão**.
+                - **CP1** demonstra forte influência negativa de **TAP** com -0.5153 de carga e forte influência positiva de **TCA** e **TCAN** com cargas de 0.6136 e 0.5787.\n
+                - Interpretamos que menores escores de permanência, e maiores escores de conclusão de curso, resultam em valores maiores do **CP1**.
+                - Concluímos que o **CP1** representa o contraste entre **Permanência x Conclusão**.
                 """
             )
-    
-    with coluna_card2:
+            
         with st.container(border=True):
             st.markdown(
                 f"""
                 #### Permanência x Desistência
-                - O segundo componente principal, **CP2**, tem uma forte influência negativa de **TAP** com -0.3996 de carga enquanto demonstra uma forte influência positiva de **TDA** e **TADA** com cargas de 0.6824 e 0.6057, respectivamente.\n
-                - De forma análoga ao primeiro componente, valores menores em permanência, e maiores nas variáeis de desistência, implicam em valores maiores do **CP2**.\n
-                - Dadas as características de suas cargas, podemos concluir que o **CP2** representa o contraste entre **Permanência x Desistência**.
+                - **CP2** demonstra forte influência negativa de **TAP** com -0.3996 de carga e forte influência positiva de **TDA** e **TADA** com cargas de 0.6824 e 0.6057, respectivamente.\n
+                - Interpretamos que menores escores de permanência, e maiores escores de desistência, resultam em valores maiores do **CP2**.
+                - Concluímos que o **CP2** representa o contraste entre **Permanência x Desistência**.
                 """
             )
     
-    st.divider()
-    st.subheader("Biplot da Análise de Componentes Principais - Dispersão das Instituições")
-    
-    grafico_biplot, ax = plt.subplots(figsize=(6.4, 4.8), dpi=100)
-    buf = io.BytesIO()
-    amv.biplot(
-        scores, cargas, df_analise["NO_IES"], variaveis_selecionadas, ax=ax
-    )
-    grafico_biplot.savefig(buf, format="png", bbox_inches="tight", dpi=300)
-    coluna_vazia1, biplot, coluna_vazia2 = st.columns([1, 2, 1])
-    with biplot:
-        st.image(buf, width=960)
+    with col2:
+        st.subheader("Biplot da Análise de Componentes Principais")
+        
+        grafico_biplot, ax = plt.subplots(figsize=(10, 8.5), dpi=100)
+        buf = io.BytesIO()
+        amv.biplot(
+            scores, cargas, df_analise["NO_IES"], variaveis_selecionadas, ax=ax,
+            label_fontsize=8
+        )
+        grafico_biplot.savefig(buf, format="png", bbox_inches="tight", dpi=200)
+        st.image(buf, use_container_width=True)
 
 # ABA 5: AGRUPAMENTO
 with aba_cluster:
     st.subheader("Análise de Agrupamento")
-    st.info("Próximo passo: definir o método (Hierárquico ou K-Means) e montar.")
+ 
+    k_grupos = st.slider("Número de grupos (k):", min_value=2, max_value=6, value=4)
+
+    st.divider()
+    st.subheader("Método Hierárquico — Vizinho Mais Distante")
+ 
+    ligacao = linkage(dados_padronizados, method="complete", metric="euclidean")
+    correlacao_cofenetica, _ = cophenet(ligacao, pdist(dados_padronizados))
+    grupos_hierarquicos = fcluster(ligacao, t=k_grupos, criterion="maxclust")
+    altura_corte_dendrograma = (ligacao[-(k_grupos - 1), 2] + ligacao[-k_grupos, 2]) / 2
+ 
+    fig_dend, ax_dend = plt.subplots(figsize=(14, 5))
+    dendrogram(
+        ligacao,
+        labels=df_analise["NO_IES"].values,
+        color_threshold=altura_corte_dendrograma,
+        leaf_rotation=90,
+        leaf_font_size=8,
+        ax=ax_dend,
+    )
+    ax_dend.axhline(altura_corte_dendrograma, color="red", linestyle="--", label=f"Corte ({k_grupos} grupos)")
+    ax_dend.set_title("Dendrograma — Ligação Completa (Distância Euclidiana)")
+    ax_dend.set_ylabel("Distância")
+    ax_dend.legend()
+    st.pyplot(fig_dend)
+ 
+    coluna_tabela_perfis, coluna_silhueta_hierarquica = st.columns([1, 1])
+    with coluna_tabela_perfis:
+        st.markdown(f"**Perfil das médias dos grupos — Correlação cofenética: {correlacao_cofenetica:.4f}**")
+        perfil_grupos_hierarquicos = df_numerico.groupby(grupos_hierarquicos).mean().round(2)
+        perfil_grupos_hierarquicos.insert(0, "N° de IES", pd.Series(grupos_hierarquicos).value_counts().sort_index().values)
+        perfil_grupos_hierarquicos.index.name = "Grupo"
+        st.dataframe(perfil_grupos_hierarquicos, use_container_width=True)
+ 
+    with coluna_silhueta_hierarquica:
+        sil_hier = [
+            silhouette_score(dados_padronizados, fcluster(ligacao, t=k, criterion="maxclust"))
+            for k in range(2, 7)
+        ]
+        fig_sil_hier, ax_silhueta_hierarquica = plt.subplots(figsize=(6, 3.5))
+        ax_silhueta_hierarquica.plot(range(2, 7), sil_hier, marker="o")
+        ax_silhueta_hierarquica.axvline(k_grupos, color="red", linestyle="--", alpha=0.6)
+        ax_silhueta_hierarquica.set_xlabel("Número de grupos")
+        ax_silhueta_hierarquica.set_ylabel("Silhueta média")
+        ax_silhueta_hierarquica.set_title("Silhueta por número de grupos - Hierárquico")
+        ax_silhueta_hierarquica.grid(linestyle="--", alpha=0.5)
+        st.pyplot(fig_sil_hier)
+ 
+    st.divider()
+    st.subheader("Método K-Means")
+ 
+    soma_quadrados_entre_clusters = []
+    silhueta_k_medias = []
+    for k in range(2, 7):
+        k_medias_teste = KMeans(n_clusters=k, n_init=10, random_state=42).fit(dados_padronizados)
+        soma_quadrados_entre_clusters.append(k_medias_teste.inertia_)
+        silhueta_k_medias.append(silhouette_score(dados_padronizados, k_medias_teste.labels_))
+ 
+    coluna_cotovelo, coluna_sil_km = st.columns([1, 1])
+    with coluna_cotovelo:
+        fig_cotovelo, ax_cotovelo = plt.subplots(figsize=(6, 3.5))
+        ax_cotovelo.plot(range(2, 7), soma_quadrados_entre_clusters, marker="o")
+        ax_cotovelo.axvline(k_grupos, color="red", linestyle="--", alpha=0.6)
+        ax_cotovelo.set_xlabel("Número de grupos (k)")
+        ax_cotovelo.set_ylabel("SQ Dentro do Cluster")
+        ax_cotovelo.grid(linestyle="--", alpha=0.5)
+        st.pyplot(fig_cotovelo)
+ 
+    with coluna_sil_km:
+        fig_silhueta_k_medias, ax_silhueta_k_medias = plt.subplots(figsize=(6, 3.5))
+        ax_silhueta_k_medias.plot(range(2, 7), silhueta_k_medias, marker="o", color="darkorange")
+        ax_silhueta_k_medias.axvline(k_grupos, color="red", linestyle="--", alpha=0.6)
+        ax_silhueta_k_medias.set_xlabel("Número de grupos (k)")
+        ax_silhueta_k_medias.set_ylabel("Silhueta média")
+        ax_silhueta_k_medias.grid(linestyle="--", alpha=0.5)
+        st.pyplot(fig_silhueta_k_medias)
+ 
+    k_medias = KMeans(n_clusters=k_grupos, n_init=10, random_state=42).fit(dados_padronizados)
+    grupos_k_medias = k_medias.labels_ + 1
+ 
+    st.markdown(f"**Perfil das médias dos grupos — Silhueta: {silhouette_score(dados_padronizados, k_medias.labels_):.4f}**")
+    perfil_k_medias = df_numerico.groupby(grupos_k_medias).mean().round(2)
+    perfil_k_medias.insert(0, "N° de IES", pd.Series(grupos_k_medias).value_counts().sort_index().values)
+    perfil_k_medias.index.name = "Grupo"
+    st.dataframe(perfil_k_medias, use_container_width=True)
+ 
+    st.divider()
+    st.subheader("Dispersão dos Grupos nas Componentes Principais")
+ 
+    coluna_graf_hier, coluna_graf_km = st.columns([1, 1])
+    for coluna, grupos, titulo in [
+        (coluna_graf_hier, grupos_hierarquicos, "Hierárquico (Ligação Completa)"),
+        (coluna_graf_km, grupos_k_medias, "K-Means"),
+    ]:
+        with coluna:
+            fig_grupos, ax_grupos = plt.subplots(figsize=(6.4, 4.8))
+            sns.scatterplot(
+                x=scores[:, 0], y=scores[:, 1], hue=grupos,
+                palette="Set2", s=45, edgecolor="k", linewidth=0.3, ax=ax_grupos,
+            )
+            ax_grupos.axhline(0, color="gray", lw=0.5)
+            ax_grupos.axvline(0, color="gray", lw=0.5)
+            ax_grupos.set_xlabel(f"CP1 ({var_explicada[0]:.1f}%)")
+            ax_grupos.set_ylabel(f"CP2 ({var_explicada[1]:.1f}%)")
+            ax_grupos.set_title(titulo)
+            ax_grupos.legend(title="Grupo", fontsize=8)
+            ax_grupos.grid(linestyle="--", alpha=0.4)
+            st.pyplot(fig_grupos)
+    
+    coluna_tab_hier, coluna_tab_km = st.columns([1, 1])
+
+    with st.container(border=True):
+        st.subheader("Instituições por grupo")
+        tabela_grupos = df_analise[["CO_IES", "NO_IES"]].copy()
+        tabela_grupos["Grupo Hierárquico"] = grupos_hierarquicos
+        tabela_grupos["Grupo K-Means"] = grupos_k_medias
+        st.dataframe(tabela_grupos.sort_values(["Grupo Hierárquico", "NO_IES"]),
+                     hide_index=True, use_container_width=True)
+ 
+    st.divider()
+    st.subheader("Conclusões da Análise de Agrupamento (k = 4)")
+ 
+    card_g1, card_g2 = st.columns(2)
+ 
+    with card_g1:
+        with st.container(border=True):
+            st.markdown("#### Hierárquico — Vizinho Mais Distante")
+            st.markdown(
+                """
+                * Correlação cofenética de **0,7643** e silhueta média de **0,443** com **4 grupos**.
+                * **39 IES** formam o grupo de **alta permanência** (TAP média de **67,9%**) e **37 IES** o de **alta conclusão** (TCA média de **55,3%**).
+                * **7 IES** (**USP, FURB, UFAL, UFSC, UEFS, UFMS e FMPFMMG**) formam o grupo de **desistência elevada** (TDA média de **60,7%**).
+                * **IMESSM** fica isolada em um grupo próprio (TDA de **90,0%** e TADA de **60,0%**).
+                """
+            )
+ 
+        with st.container(border=True):
+            st.markdown("#### Escolha do número de grupos")
+            st.markdown(
+                """
+                * Com **k = 2**, a silhueta do hierárquico é alta (**0,705**), mas apenas porque separa a **IMESSM** das demais 83 IES, o que não traz informação útil.
+                * **k = 4** é o menor valor que separa grupos com perfis distintos (permanência, conclusão e desistência), além do outlier.
+                """
+            )
+ 
+    with card_g2:
+        with st.container(border=True):
+            st.markdown("#### K-Médias")
+            st.markdown(
+                """
+                * Silhueta média de **0,445** com **4 grupos**, praticamente igual à do hierárquico.
+                * **42 IES** no grupo de **permanência** (TAP média de **66,2%**) e **30 IES** no de **conclusão** (TCA de **59,1%** e TCAN de **51,8%**).
+                * **11 IES** no grupo de **desistência elevada** (TDA de **55,9%** e TADA de **7,5%**).
+                * **IMESSM** também forma um grupo isolado.
+                """
+            )
+ 
+        with st.container(border=True):
+            st.markdown("#### Concordância entre os métodos")
+            st.markdown(
+                """
+                * Índice de Rand Ajustado de **0,776**, indicando partições bastante semelhantes.
+                * A diferença está na fronteira do grupo de desistência: o K-Means inclui mais IES (**11**) do que o hierárquico (**7**).
+                * Os grupos se alinham aos dois eixos do PCA: **CP1** (permanência x conclusão) e **CP2** (permanência x desistência).
+                """
+            )
