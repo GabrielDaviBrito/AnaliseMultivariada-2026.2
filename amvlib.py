@@ -38,7 +38,7 @@ def biplot(scores, loadings, labels, var_names, pc=(0, 1), ax=None, label_fontsi
 
     ax.axhline(0, color='gray', lw=0.5, ls='--')
     ax.axvline(0, color='gray', lw=0.5, ls='--')
-    ax.set_xlabel(f'CP{i+1}')
-    ax.set_ylabel(f'CP{j+1}')
+    ax.set_xlabel('Permanência x Conclusão')
+    ax.set_ylabel('Permanência x Desistência')
     ax.set_title('Biplot – PCA (matriz de correlação)')
     ax.grid(alpha=0.2)

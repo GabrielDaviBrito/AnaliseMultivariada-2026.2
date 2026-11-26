@@ -7,6 +7,7 @@ import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 import streamlit as st
+import io
 
 # Configuração inicial da página
 st.set_page_config(
@@ -103,11 +104,11 @@ dados_padronizados = scaler.fit_transform(df_numerico)
 
 # --- CRIAÇÃO DAS ABAS ---
 aba_dados, aba_box, aba_corr, aba_pca, aba_cluster = st.tabs([
-"📋 Dados",
-    "📦 Boxplots",
-    "🔥 Matriz de Correlação",
-    "🧭 Componentes Principais (PCA)",
-    "🧩 Agrupamento (Cluster)",
+    "Dados",
+    "Boxplots",
+    "Matriz de Correlação",
+    "Componentes Principais (PCA)",
+    "Agrupamento (Cluster)",
 ])
 
 # ABA 1: DADOS 
@@ -260,7 +261,7 @@ with aba_corr:
         st.dataframe(corr_matriz.round(4), use_container_width=True)
 
     st.divider()
-    st.subheader("📝 Principais Conclusões da Matriz de Correlação")
+    st.subheader("Principais Conclusões da Matriz de Correlação")
 
     card_c1, card_c2 = st.columns(2)
 
@@ -306,13 +307,81 @@ with aba_pca:
     st.subheader("Análise de Componentes Principais (PCA)")
     pca = PCA()
     scores = pca.fit_transform(dados_padronizados)
-    loadings = pca.components_.T
+    cargas = pca.components_.T
+    componentes_pricipais_labels = [f"CP{i+1}" for i in range(len(variaveis_selecionadas))]
+    var_explicada = pca.explained_variance_ratio_ * 100
+    var_acumulada = np.cumsum(var_explicada)
+    
+    coluna_tabelaVar, coluna_cards = st.columns([1, 1])
+    with coluna_tabelaVar:
+        st.subheader("Variância Explicada pelos Componentes Principais")
+        tabela_var = pd.DataFrame({
+            'Componente': componentes_pricipais_labels,
+            'Variância (%)': np.round(var_explicada, 2),
+            'Acumulada (%)': np.round(var_acumulada, 2)
+        })
+        st.dataframe(tabela_var, width=960)
+    
+    with coluna_cards:
+        st.subheader("Critérios de Seleção dos Componentes Principais")
+        total_retentores_da_variancia = sum([1 for cp in var_explicada if cp >= 25.0])
+        with st.container(border=True):
+            st.markdown(
+                f"""
+                - Consideraremos somente os componentes principais que somarem pelo menos **25% da variância individual**. \n
+                - Os componentes **CP1 e CP2** explicam, respectivamente, **50,22%** e **35,89%** da variância dos dados, totalizando **86,11%** da variância total. \n
+                - Os demais componentes, **CP3, CP4, CP5**, explicam somente **13,89%** da variância total, portanto, serão desconsiderados.
+                """
+            )
 
-    grafico_biplot, ax = plt.subplots(figsize=(10, 7))
+    st.divider()
+        
+    coluna_tabelaLoad, coluna_vazia = st.columns([1, 1])
+    with coluna_tabelaLoad:
+        st.subheader("Cargas dos Componentes Principais")
+        tabela_loadings = pd.DataFrame(
+            cargas,
+            index=[variaveis_selecionadas],
+            columns=[f'CP{i+1}' for i in range(len(cargas))]
+        )
+        st.dataframe(tabela_loadings, width=960)
+    
+    st.subheader("Interpretação das Cargas e Identificação dos Componentes Principais")
+    coluna_card1, coluna_card2 = st.columns([1, 1])
+    with coluna_card1:
+        with st.container(border=True):
+            st.markdown(
+                f"""
+                #### Permanência x Conclusão
+                - O primeiro componente principal, **CP1**, tem uma forte influência negativa de **TAP** com -0.5153 de carga enquanto demonstra uma forte influência positiva de **TCA** e **TCAN** com cargas de 0.6136 e 0.5787, respectivamente.\n
+                - Podemos observar que quanto menor a permanẽncia, e maior a conclusão, maior o valor do **CP1**. Caso contrário, observamos valores mais baixos do componente.\n
+                - Chegamos à conclusão de que o **CP1** representa o contraste entre **Permanência x Conclusão**.
+                """
+            )
+    
+    with coluna_card2:
+        with st.container(border=True):
+            st.markdown(
+                f"""
+                #### Permanência x Desistência
+                - O segundo componente principal, **CP2**, tem uma forte influência negativa de **TAP** com -0.3996 de carga enquanto demonstra uma forte influência positiva de **TDA** e **TADA** com cargas de 0.6824 e 0.6057, respectivamente.\n
+                - De forma análoga ao primeiro componente, valores menores em permanência, e maiores nas variáeis de desistência, implicam em valores maiores do **CP2**.\n
+                - Dadas as características de suas cargas, podemos concluir que o **CP2** representa o contraste entre **Permanência x Desistência**.
+                """
+            )
+    
+    st.divider()
+    st.subheader("Biplot da Análise de Componentes Principais - Dispersão das Instituições")
+    
+    grafico_biplot, ax = plt.subplots(figsize=(6.4, 4.8), dpi=100)
+    buf = io.BytesIO()
     amv.biplot(
-        scores, loadings, df_analise["NO_IES"], variaveis_selecionadas, ax=ax
+        scores, cargas, df_analise["NO_IES"], variaveis_selecionadas, ax=ax
     )
-    st.pyplot(grafico_biplot)
+    grafico_biplot.savefig(buf, format="png", bbox_inches="tight", dpi=300)
+    coluna_vazia1, biplot, coluna_vazia2 = st.columns([1, 2, 1])
+    with biplot:
+        st.image(buf, width=960)
 
 # ABA 5: AGRUPAMENTO
 with aba_cluster:
